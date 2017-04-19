@@ -181,6 +181,7 @@ communication channel."
 			   (org-element-property :URI headline)))))
 	 (lang (org-export-data (plist-get info :language) info))
 	 (timestr (format-time-string-ISO-8601))
+	 ;; FIXME: check skos:scopeNote
 	 (notation
 	  (org-skos-i18n
 	   (org-element-property :SKOS:NOTATION headline) lang "skos:notation"))
@@ -190,9 +191,6 @@ communication channel."
 	 (note
 	  (org-skos-i18n
 	   (org-element-property :SKOS:NOTE headline) lang "skos:note"))
-	 (altlabel
-	  (org-skos-i18n
-	   (org-element-property :SKOS:ALTLABEL headline) lang "skos:altLabel"))
 	 (altlabel
 	  (org-skos-i18n
 	   (org-element-property :SKOS:ALTLABEL headline) lang "skos:altLabel"))

@@ -71,7 +71,15 @@
 	(?S "As SKOS file" (lambda (a s v b) (org-skos-export-to-skos a s v)))))
   :options-alist
   '((:description "DESCRIPTION" nil nil newline)
-    (:keywords "KEYWORDS" nil nil space)
+    (:coverage    "COVERAGE" nil nil newline)
+    (:type        "TYPE" nil nil newline)
+    (:source      "SOURCE" nil nil newline)
+    (:contributor "CONTRIBUTOR" nil nil newline)
+    (:homepage    "HOMEPAGE" nil nil newline)
+    (:rights      "RIGHTS" nil nil newline)
+    (:publisher   "PUBLISHER" nil nil newline)
+    (:subject     "SUBJECT" nil nil newline)
+    (:keywords    "KEYWORDS" nil nil space)
     (:skos-conceptschemeuri "SKOS_CONCEPTSCHEMEURI" nil nil t)
     (:with-toc nil nil nil)
     (:skos-extension "SKOS_EXTENSION" nil org-skos-extension))
@@ -229,9 +237,11 @@ communication channel."
     (concat
      ;; Add basic SKOS info
      (format
-      "<rdf:Description rdf:about=\"%s%s\">
+      "<skos:Concept rdf:about=\"%s%s\">
   <rdf:type rdf:resource=\"http://www.w3.org/2004/02/skos/core#Concept\"/>
-  <skos:inScheme rdf:resource=\"%s\"/>
+  <skos:inScheme>
+    <skos:ConceptScheme rdf:about=\"%s\"/>
+  </skos:inScheme>
   %s
   %s
   %s
@@ -253,20 +263,68 @@ communication channel."
      ;; Possibly add topConceptOf
      (if (= (org-element-property :level headline) 1)
   	 (format "<skos:topConceptOf rdf:resource=\"%s\"/>" conceptschemeuri))
-     "\n</rdf:Description>\n"
+     "\n</skos:Concept>\n"
      contents)))
+
+(defun format-time-string-ISO-8601 ()
+  (concat
+   (format-time-string "%Y-%m-%dT%T")
+   ((lambda (x) (concat (substring x 0 3) ":" (substring x 3 5)))
+    (format-time-string "%z"))))
 
 (defun org-skos-build-top-level-description (contents info)
   (let ((conceptschemeuri (plist-get info :skos-conceptschemeuri))
 	(description (plist-get info :description))
 	(lang (org-export-data (plist-get info :language) info))
-	(title (org-export-data (plist-get info :title) info)))
+	(title (org-export-data (plist-get info :title) info))
+	(publisher (org-export-data (plist-get info :publisher) info))
+	(homepage (org-export-data (plist-get info :homepage) info))
+	(rights (org-export-data (plist-get info :rights) info))
+	(email (org-export-data (plist-get info :email) info))
+	(type (org-export-data (plist-get info :type) info))
+	(source (org-export-data (plist-get info :source) info))
+	(author (org-export-data (plist-get info :author) info))
+	(contributor (org-export-data (plist-get info :contributor) info))
+	(subject (org-export-data (plist-get info :subject) info))
+	(coverage (org-export-data (plist-get info :coverage) info))
+	(timestr (format-time-string-ISO-8601)))
     (concat
-     (format "<rdf:Description rdf:about=\"%s\">
+     (format "<skos:ConceptScheme rdf:about=\"%s\">
 <rdf:type rdf:resource=\"http://www.w3.org/2004/02/skos/core#ConceptScheme\"/>
+<dc:rights>%s</dc:rights>
+<dct:created>%s</dct:created>
+<dc:relation></dc:relation>
+<dct:issued>Publication</dct:issued>
+<dct:modified>%s</dct:modified>
+<dc:type>%s</dc:type>
+<dc:source>%s</dc:source>
+<dc:subject>%s</dc:subject>
+<dc:coverage>%s</dc:coverage>
+<dc:language>%s-%s</dc:language>
+<dc:publisher>%s</dc:publisher>
+<dc:contributor>%s</dc:contributor>
+<dc:creator>
+  <foaf:Organization>
+    <foaf:mbox>%s</foaf:mbox>
+    <foaf:homepage>%s</foaf:homepage>
+    <foaf:name>%s</foaf:name>
+  </foaf:Organization>
+</dc:creator>
 <dct:description xml:lang=\"%s\">%s</dct:description>
 <dct:title xml:lang=\"%s\">%s</dct:title>\n"
-	     conceptschemeuri lang description lang title)
+	     conceptschemeuri
+	     rights
+	     timestr
+	     timestr
+	     type
+	     source
+	     subject
+	     coverage
+	     lang (upcase lang)
+	     publisher
+	     contributor
+	     email homepage author
+	     lang description lang title)
      (mapconcat
       (lambda (uri)
 	(format "<skos:hasTopConcept rdf:resource=\"%s%s\"/>"
@@ -274,11 +332,12 @@ communication channel."
 		uri))
       (org-element-map (plist-get info :parse-tree)
 	  'headline (lambda (h)
+		      ;; FIXME: why limiting to headlines of level 1 below?
 		      (if (= (org-element-property :level h) 1)
 			  (concat "#" (url-encode-url
 				       (org-element-property :URI h))))))
       "\n")
-     "\n</rdf:Description>")))
+     "\n</skos:ConceptScheme>")))
 
 (defun org-skos-template (contents info)
   "Return complete document string after SKOS conversion.

@@ -89,6 +89,13 @@
 		     (paragraph . (lambda (&rest args) ""))
 		     (template . org-skos-template)))
 
+;;; Export variables
+
+(defvar org-skos-uri-separator "#")
+
+(defvar org-skos-terms nil
+  "A list of terms to generate iso-thes data.")
+
 ;;; Export functions
 
 ;;;###autoload
@@ -115,6 +122,7 @@ Export is done in a buffer named \"*Org SKOS Export*\", which will
 be displayed when `org-export-show-temporary-export-buffer' is
 non-nil."
   (interactive)
+  (setq org-skos-terms nil)
   (org-export-to-buffer 'skos "*Org SKOS Export*"
     async subtreep visible-only nil nil (lambda () (text-mode))))
 
@@ -140,6 +148,7 @@ contents of hidden elements.
 
 Return output file's name."
   (interactive)
+  (setq org-skos-terms nil)
   (let ((outfile (org-export-output-file-name
 		  (concat "." org-skos-extension) subtreep)))
     (org-export-to-file 'skos outfile async subtreep visible-only)))
@@ -153,23 +162,42 @@ is the property list for the given project.  PUB-DIR is the
 publishing directory.
 
 Return output file name."
+  (setq org-skos-terms nil)
   (org-publish-org-to
    'skos filename (concat "." org-skos-extension) plist pub-dir))
 
 ;;; Main transcoding functions
 
-(defun org-skos-i18n (value lang attr)
+(defun org-skos-i18n (value lang attr conceptschemeuri)
   "Convert VALUE with LANG into xml attribute ATTR.
 VALUE can be a string or an alist."
   (if (null value) ""
-    (let ((values (org-babel-parse-header-arguments value)))
-      (mapconcat
-       (lambda (lv)
-	 (let ((l (if (cdr lv) (substring (symbol-name (car lv)) 1) lang))
-	       (v (if (cdr lv) (cdr lv) (symbol-name (car lv)))))
-	   (format "<%s xml:lang=\"%s\">%s</%s>" attr l v attr)))
-       values
-       "\n"))))
+    (let* ((values (org-babel-parse-header-arguments value))
+	   (uuid (org-id-new))
+	   (attr0 (when (string-match "[^:]+:\\(.+\\)" attr)
+		    (match-string 1 attr)))
+	   (iso-thes-attr
+	    (cond ((string= attr0 "prefLabel") "PreferredTerm")
+		  ((string= attr0 "altLabel") "SimpleNonPreferredTerm")
+		  (t ""))))
+      (concat
+       (when (or (string= attr0 "prefLabel")
+		 (string= attr0 "altLabel"))
+	 ;; Update the global list of terms
+	 (push (list uuid attr0 values)
+	       org-skos-terms)
+	 (format (concat
+		  "<xl:" attr0 ">\n<iso-thes:" iso-thes-attr
+		  " rdf:about=\"%s" org-skos-uri-separator
+		  "%s\" />\n</xl:" attr0 ">\n")
+		 conceptschemeuri uuid))
+       (mapconcat
+	(lambda (lv)
+	  (let ((l (if (cdr lv) (substring (symbol-name (car lv)) 1) lang))
+		(v (if (cdr lv) (cdr lv) (symbol-name (car lv)))))
+	    (format "<%s xml:lang=\"%s\">%s</%s>" attr l v attr)))
+	values
+	"\n")))))
 
 (defun org-skos-headline (headline contents info)
   "Transcode HEADLINE element into SKOS format.
@@ -182,25 +210,29 @@ communication channel."
 	 (lang (org-export-data (plist-get info :language) info))
 	 (timestr (format-time-string-ISO-8601))
 	 ;; FIXME: check skos:scopeNote
+	 (conceptschemeuri
+	  (url-encode-url (plist-get info :skos-conceptschemeuri)))
 	 (notation
 	  (org-skos-i18n
-	   (org-element-property :SKOS:NOTATION headline) lang "skos:notation"))
+	   (org-element-property :SKOS:NOTATION headline)
+	   lang "skos:notation" conceptschemeuri))
 	 (example
 	  (org-skos-i18n
-	   (org-element-property :SKOS:EXAMPLE headline) lang "skos:example"))
+	   (org-element-property :SKOS:EXAMPLE headline)
+	   lang "skos:example" conceptschemeuri))
 	 (note
 	  (org-skos-i18n
-	   (org-element-property :SKOS:NOTE headline) lang "skos:note"))
+	   (org-element-property :SKOS:NOTE headline)
+	   lang "skos:note" conceptschemeuri))
 	 (altlabel
 	  (org-skos-i18n
-	   (org-element-property :SKOS:ALTLABEL headline) lang "skos:altLabel"))
+	   (org-element-property :SKOS:ALTLABEL headline)
+	   lang "skos:altLabel" conceptschemeuri))
 	 (preflabel
 	  (org-skos-i18n
 	   (or (org-element-property :SKOS:PREFLABEL headline)
 	       (org-element-property :raw-value headline))
-	   lang "skos:prefLabel"))
-	 (conceptschemeuri
-	  (url-encode-url (plist-get info :skos-conceptschemeuri)))
+	   lang "skos:prefLabel" conceptschemeuri))
 	 (broader
 	  (org-element-property :URI (org-export-get-parent-headline headline)))
 	 (narrower  ;; a list of narrower URIs
@@ -225,7 +257,7 @@ communication channel."
 	 (definition
 	   (or (org-skos-i18n
 		(org-element-property :SKOS:DEFINITION headline)
-		lang "skos:definition")
+		lang "skos:definition" conceptschemeuri)
 	       (and first-para
 		    (format "<skos:definition xml:lang=\"%s\">%s</skos:definition>"
 			    lang
@@ -269,6 +301,42 @@ communication channel."
   	 (format "<skos:topConceptOf rdf:resource=\"%s\"/>" conceptschemeuri))
      "\n</skos:Concept>\n"
      contents)))
+
+(defun org-skos-build-iso-thes-term (term conceptschemeuri)
+  "Use `term' to build iso-thes bloc.
+`term' is a list with a uuid, an iso-thes attribute and a list of
+cons formed from a language specified and a litteral."
+  (let ((timestr (format-time-string-ISO-8601))
+	(uuid (car term))
+	(attr (nth 1 term))
+	(values (nth 2 term)))
+    (format
+     "<iso-thes:%s rdf:about=\"%s%s%s\">
+        <iso-thes:status>1</iso-thes:status>
+        %s
+        <dct:modified>%s</dct:modified>
+        <dct:created>%s</dct:created>
+    </iso-thes:%s>"
+     attr
+     conceptschemeuri org-skos-uri-separator uuid
+     (mapconcat
+      (lambda(v)
+	(format "<xl:literalForm xml:lang=\"%s\">%s</xl:literalForm>"
+		;; (car v)
+		(substring (symbol-name (car v)) 1)
+		(cdr v)))
+      values "\n")
+     timestr timestr
+     attr)))
+
+(defun org-skos-build-iso-thes-terms (contents info)
+  "Build the list of iso-thes terms using `org-skos-terms'."
+  (let ((conceptschemeuri (plist-get info :skos-conceptschemeuri)))
+    (mapconcat
+     (lambda (term)
+       (org-skos-build-iso-thes-term term conceptschemeuri))
+     org-skos-terms
+     "\n")))
 
 (defun format-time-string-ISO-8601 ()
   (concat
@@ -371,7 +439,8 @@ as a communication channel."
    (org-skos-build-top-level-description contents info)
    "\n"
    contents
-   "</rdf:RDF>"))
+   (org-skos-build-iso-thes-terms contents info)
+   "\n</rdf:RDF>"))
 
 (defun org-skos-section (section contents info)
   "Transcode SECTION element into SKOS format.

@@ -252,6 +252,7 @@ communication channel."
   %s
   %s
   %s
+<iso-thes:status>1</iso-thes:status>
 "
       timestr timestr
       conceptschemeuri uri conceptschemeuri

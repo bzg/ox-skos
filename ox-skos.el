@@ -338,7 +338,7 @@ communication channel."
 		uri))
       (org-element-map (plist-get info :parse-tree)
 	  'headline (lambda (h)
-		      ;; FIXME: why limiting to headlines of level 1 below?
+		      ;; Only consider top-level concepts
 		      (if (= (org-element-property :level h) 1)
 			  (concat "#" (or (org-element-property :ID h)
 					  (url-encode-url

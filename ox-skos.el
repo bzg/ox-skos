@@ -47,8 +47,6 @@
 (declare-function url-encode-url "url-util" (url))
 (declare-function org-babel-parse-header-arguments "ob-core" (arg-string))
 
-;; (declare-function url-encode-url "url-util" (url))
-
 ;;; Variables and options
 
 (defgroup org-export-skos nil
@@ -177,8 +175,12 @@ VALUE can be a string or an alist."
   "Transcode HEADLINE element into SKOS format.
 CONTENTS is the headline contents.  INFO is a plist used as a
 communication channel."
-  (let* ((uri (concat "#" (url-encode-url (org-element-property :URI headline))))
+  (let* ((uri (concat "#" 
+		      (or (org-element-property :ID headline)
+			  (url-encode-url
+			   (org-element-property :URI headline)))))
 	 (lang (org-export-data (plist-get info :language) info))
+	 (timestr (format-time-string-ISO-8601))
 	 (notation
 	  (org-skos-i18n
 	   (org-element-property :SKOS:NOTATION headline) lang "skos:notation"))
@@ -242,6 +244,8 @@ communication channel."
   <skos:inScheme>
     <skos:ConceptScheme rdf:about=\"%s\"/>
   </skos:inScheme>
+<dct:modified>%s</dct:modified>
+<dct:created>%s</dct:created>
   %s
   %s
   %s
@@ -249,6 +253,7 @@ communication channel."
   %s
   %s
 "
+      timestr timestr
       conceptschemeuri uri conceptschemeuri
       definition notation preflabel altlabel example note)
      ;; Possibly add "broader"
@@ -334,8 +339,9 @@ communication channel."
 	  'headline (lambda (h)
 		      ;; FIXME: why limiting to headlines of level 1 below?
 		      (if (= (org-element-property :level h) 1)
-			  (concat "#" (url-encode-url
-				       (org-element-property :URI h))))))
+			  (concat "#" (or (org-element-property :ID h)
+					  (url-encode-url
+					   (org-element-property :URI h)))))))
       "\n")
      "\n</skos:ConceptScheme>")))
 

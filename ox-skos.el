@@ -28,16 +28,18 @@
 ;; This backend understands these new option keywords:
 ;;
 ;; #+SKOS_EXTENSION: rdf (the default)
-;; #+SKOS_CONCEPTSCHEMEURI: set the base concept scheme URI.
+;; #+CONCEPTSCHEMEID: set the ID of the concept scheme 
+;; #+CONCEPTSCHEMEBASEURI: set the concept scheme base URI
+;; #+CONCEPTSCHEMEID: set the concept scheme ID
 ;;
 ;;; Todo:
 ;;
-;; - use :skos:note:fr: to specify the language
-;; - use :skos:note:1 or :skos:note:note_label for multiple notes
+;; - use :skos:note:fr: to specify the language?
+;; - use :skos:note:1 or :skos:note:note_label for multiple notes?
 ;; - implement related (add var with list of properties?)
-;; - use SKOS_EXTENSION for ttl output ?
+;; - use SKOS_EXTENSION for ttl output?
 ;; - write ox-skos-html to export to html
-;; - write ox-skos-latex to export to latex (anf scribble?!)
+;; - write ox-skos-latex to export to latex (and scribble?!)
 
 ;;; Code:
 
@@ -59,6 +61,29 @@
   :group 'org-export-skos
   :type 'string)
 
+(defcustom org-skos-uri-separator "/"
+  "Separate the concept scheme URI and the concept scheme ID."
+  :group 'org-export-skos
+  :type 'string)
+
+(defcustom org-skos-id-separator "-"
+  "Separate the concept scheme ID and the concept ID."
+  :group 'org-export-skos
+  :type 'string)
+
+;; (setq org-skos-uri-separator "/")
+;; (setq org-skos-id-separator "-")
+
+(defcustom org-skos-ISO-25964 nil
+  "When non-nil, include ISO-THES data."
+  :group 'org-export-skos
+  :type 'boolean)
+
+;; (setq org-skos-ISO-25964 nil)
+
+(defvar org-skos-terms nil
+  "A list of terms to generate iso-thes data.")
+
 ;;; Define backend
 
 (org-export-define-derived-backend 'skos 'html
@@ -78,7 +103,8 @@
     (:publisher   "PUBLISHER" nil nil newline)
     (:subject     "SUBJECT" nil nil newline)
     (:keywords    "KEYWORDS" nil nil space)
-    (:skos-conceptschemeuri "SKOS_CONCEPTSCHEMEURI" nil nil t)
+    (:conceptschemebaseuri "CONCEPTSCHEMEBASEURI" nil nil t)
+    (:conceptschemeid "CONCEPTSCHEMEID" nil nil t)
     (:with-toc nil nil nil)
     (:skos-extension "SKOS_EXTENSION" nil org-skos-extension))
   :filters-alist '((:filter-final-output . org-skos-final-function))
@@ -88,13 +114,6 @@
 		     (section . org-skos-section)
 		     (paragraph . (lambda (&rest args) ""))
 		     (template . org-skos-template)))
-
-;;; Export variables
-
-(defvar org-skos-uri-separator "#")
-
-(defvar org-skos-terms nil
-  "A list of terms to generate iso-thes data.")
 
 ;;; Export functions
 
@@ -168,29 +187,28 @@ Return output file name."
 
 ;;; Main transcoding functions
 
-(defun org-skos-i18n (value lang attr conceptschemeuri)
+(defun org-skos-i18n (value lang attr conceptschemeuri conceptschemebaseuri)
   "Convert VALUE with LANG into xml attribute ATTR.
 VALUE can be a string or an alist."
   (if (null value) ""
-    (let* ((values (org-babel-parse-header-arguments value))
-	   (uuid (org-id-new))
-	   (attr0 (when (string-match "[^:]+:\\(.+\\)" attr)
-		    (match-string 1 attr)))
-	   (iso-thes-attr
-	    (cond ((string= attr0 "prefLabel") "PreferredTerm")
-		  ((string= attr0 "altLabel") "SimpleNonPreferredTerm")
-		  (t ""))))
+    (let ((values (org-babel-parse-header-arguments value))
+	  (id (org-id-new))
+	  (attr0 (when (string-match "[^:]+:\\(.+\\)" attr)
+			 (match-string 1 attr))))
       (concat
-       (when (or (string= attr0 "prefLabel")
-		 (string= attr0 "altLabel"))
+       (when (and org-skos-ISO-25964
+		  (or (string= attr0 "prefLabel")
+		      (string= attr0 "altLabel")))
 	 ;; Update the global list of terms
-	 (push (list uuid attr0 values)
-	       org-skos-terms)
+	 (push (list id attr0 values) org-skos-terms)
 	 (format (concat
-		  "<xl:" attr0 ">\n<iso-thes:" iso-thes-attr
+		  "<xl:" attr0 ">\n<iso-thes:"
+		  (cond ((string= attr0 "prefLabel") "PreferredTerm")
+			((string= attr0 "altLabel") "SimpleNonPreferredTerm")
+			(t ""))
 		  " rdf:about=\"%s" org-skos-uri-separator
 		  "%s\" />\n</xl:" attr0 ">\n")
-		 conceptschemeuri uuid))
+		 conceptschemebaseuri id))
        (mapconcat
 	(lambda (lv)
 	  (let ((l (if (cdr lv) (substring (symbol-name (car lv)) 1) lang))
@@ -203,38 +221,44 @@ VALUE can be a string or an alist."
   "Transcode HEADLINE element into SKOS format.
 CONTENTS is the headline contents.  INFO is a plist used as a
 communication channel."
-  (let* ((uri (concat "#" 
-		      (or (org-element-property :ID headline)
-			  (url-encode-url
-			   (org-element-property :URI headline)))))
+  (let* ((id (or (org-element-property :ID headline)
+		 (url-encode-url
+		  (org-element-property :URI headline))))
 	 (lang (org-export-data (plist-get info :language) info))
 	 (timestr (format-time-string-ISO-8601))
 	 ;; FIXME: check skos:scopeNote
+	 (conceptschemebaseuri
+	  (url-encode-url (plist-get info :conceptschemebaseuri)))
 	 (conceptschemeuri
-	  (url-encode-url (plist-get info :skos-conceptschemeuri)))
+	  (concat
+	   conceptschemebaseuri
+	   org-skos-uri-separator
+	   (url-encode-url (plist-get info :conceptschemeid))))
 	 (notation
 	  (org-skos-i18n
 	   (org-element-property :SKOS:NOTATION headline)
-	   lang "skos:notation" conceptschemeuri))
+	   lang "skos:notation" conceptschemeuri conceptschemebaseuri))
 	 (example
 	  (org-skos-i18n
 	   (org-element-property :SKOS:EXAMPLE headline)
-	   lang "skos:example" conceptschemeuri))
+	   lang "skos:example" conceptschemeuri conceptschemebaseuri))
 	 (note
 	  (org-skos-i18n
 	   (org-element-property :SKOS:NOTE headline)
-	   lang "skos:note" conceptschemeuri))
+	   lang "skos:note" conceptschemeuri conceptschemebaseuri))
 	 (altlabel
 	  (org-skos-i18n
 	   (org-element-property :SKOS:ALTLABEL headline)
-	   lang "skos:altLabel" conceptschemeuri))
+	   lang "skos:altLabel" conceptschemeuri conceptschemebaseuri))
 	 (preflabel
 	  (org-skos-i18n
 	   (or (org-element-property :SKOS:PREFLABEL headline)
 	       (org-element-property :raw-value headline))
-	   lang "skos:prefLabel" conceptschemeuri))
+	   lang "skos:prefLabel" conceptschemeuri conceptschemebaseuri))
 	 (broader
-	  (org-element-property :URI (org-export-get-parent-headline headline)))
+	  (or
+	   (org-element-property :ID (org-export-get-parent-headline headline))
+	   (org-element-property :URI (org-export-get-parent-headline headline))))
 	 (narrower  ;; a list of narrower URIs
 	  (org-element-map (plist-get info :parse-tree) 'headline
 	    (lambda (h)
@@ -242,7 +266,9 @@ communication channel."
 		   (org-element-property
 		    :raw-value (org-export-get-parent-headline h))
 		   (org-element-property :raw-value headline))
-		  (org-element-property :URI h)))))
+		  (or
+		   (org-element-property :ID h)
+		   (org-element-property :URI h))))))
 	 (parent (org-element-property :parent headline))
 	 ;; FIXME use org-export-get-previous-element?
 	 (first-para
@@ -257,7 +283,7 @@ communication channel."
 	 (definition
 	   (or (org-skos-i18n
 		(org-element-property :SKOS:DEFINITION headline)
-		lang "skos:definition" conceptschemeuri)
+		lang "skos:definition" conceptschemeuri conceptschemebaseuri)
 	       (and first-para
 		    (format "<skos:definition xml:lang=\"%s\">%s</skos:definition>"
 			    lang
@@ -269,45 +295,44 @@ communication channel."
     (concat
      ;; Add basic SKOS info
      (format
-      "<skos:Concept rdf:about=\"%s%s\">
+      "<skos:Concept rdf:about=\"%s%s%s\">
   <rdf:type rdf:resource=\"http://www.w3.org/2004/02/skos/core#Concept\"/>
   <skos:inScheme>
     <skos:ConceptScheme rdf:about=\"%s\"/>
   </skos:inScheme>
 <dct:modified>%s</dct:modified>
 <dct:created>%s</dct:created>
-  %s
-  %s
-  %s
-  %s
-  %s
-  %s
-<iso-thes:status>1</iso-thes:status>
 "
-      timestr timestr
-      conceptschemeuri uri conceptschemeuri
-      definition notation preflabel altlabel example note)
+      conceptschemeuri org-skos-id-separator id
+      conceptschemeuri
+      timestr timestr)
+     definition "\n" notation "\n" preflabel "\n"
+     altlabel "\n" example "\n" note "\n"
+     (when org-skos-ISO-25964 "<iso-thes:status>1</iso-thes:status>\n")
      ;; Possibly add "broader"
-     (if broader
-  	 (format "<skos:broader rdf:resource=\"%s%s\"/>\n" conceptschemeuri broader))
+     (when broader
+       (format "<skos:broader rdf:resource=\"%s%s\"/>\n" conceptschemeuri broader))
      ;; Possibly add "narrower"
-     (if narrower
-	 (mapconcat
-	  (lambda (n)
-	    (format "<skos:narrower rdf:resource=\"%s%s\"/>" conceptschemeuri n))
-	  narrower "\n"))
+     (when narrower
+       (mapconcat
+	(lambda (n)
+	  (format "<skos:narrower rdf:resource=\"%s%s\"/>" conceptschemeuri n))
+	narrower "\n"))
      ;; Possibly add topConceptOf
-     (if (= (org-element-property :level headline) 1)
-  	 (format "<skos:topConceptOf rdf:resource=\"%s\"/>" conceptschemeuri))
+     (when (= (org-element-property :level headline) 1)
+       (format "<skos:topConceptOf rdf:resource=\"%s\"/>" conceptschemeuri))
+     ;; Possibly add iso-thes:status
+     
      "\n</skos:Concept>\n"
      contents)))
 
-(defun org-skos-build-iso-thes-term (term conceptschemeuri)
+;; FIXME: id should be uuid, without the conceptscheme base URI
+(defun org-skos-build-iso-thes-term (term conceptschemebaseuri)
   "Use `term' to build iso-thes bloc.
-`term' is a list with a uuid, an iso-thes attribute and a list of
+`term' is a list with an id, an iso-thes attribute and a list of
 cons formed from a language specified and a litteral."
   (let ((timestr (format-time-string-ISO-8601))
-	(uuid (car term))
+	(id (car term))
 	(attr (nth 1 term))
 	(values (nth 2 term)))
     (format
@@ -318,7 +343,7 @@ cons formed from a language specified and a litteral."
         <dct:created>%s</dct:created>
     </iso-thes:%s>"
      attr
-     conceptschemeuri org-skos-uri-separator uuid
+     conceptschemebaseuri org-skos-uri-separator id
      (mapconcat
       (lambda(v)
 	(format "<xl:literalForm xml:lang=\"%s\">%s</xl:literalForm>"
@@ -331,10 +356,10 @@ cons formed from a language specified and a litteral."
 
 (defun org-skos-build-iso-thes-terms (contents info)
   "Build the list of iso-thes terms using `org-skos-terms'."
-  (let ((conceptschemeuri (plist-get info :skos-conceptschemeuri)))
+  (let ((conceptschemebaseuri (plist-get info :conceptschemebaseuri)))
     (mapconcat
      (lambda (term)
-       (org-skos-build-iso-thes-term term conceptschemeuri))
+       (org-skos-build-iso-thes-term term conceptschemebaseuri))
      org-skos-terms
      "\n")))
 
@@ -345,7 +370,8 @@ cons formed from a language specified and a litteral."
     (format-time-string "%z"))))
 
 (defun org-skos-build-top-level-description (contents info)
-  (let ((conceptschemeuri (plist-get info :skos-conceptschemeuri))
+  (let ((conceptschemebaseuri (plist-get info :conceptschemebaseuri))
+	(conceptschemeid (plist-get info :conceptschemeid))
 	(description (plist-get info :description))
 	(lang (org-export-data (plist-get info :language) info))
 	(title (org-export-data (plist-get info :title) info))
@@ -361,7 +387,7 @@ cons formed from a language specified and a litteral."
 	(coverage (org-export-data (plist-get info :coverage) info))
 	(timestr (format-time-string-ISO-8601)))
     (concat
-     (format "<skos:ConceptScheme rdf:about=\"%s\">
+     (format "<skos:ConceptScheme rdf:about=\"%s%s%s\">
 <rdf:type rdf:resource=\"http://www.w3.org/2004/02/skos/core#ConceptScheme\"/>
 <dc:rights>%s</dc:rights>
 <dct:created>%s</dct:created>
@@ -384,7 +410,7 @@ cons formed from a language specified and a litteral."
 </dc:creator>
 <dct:description xml:lang=\"%s\">%s</dct:description>
 <dct:title xml:lang=\"%s\">%s</dct:title>\n"
-	     conceptschemeuri
+	     conceptschemebaseuri org-skos-uri-separator conceptschemeid
 	     rights
 	     timestr
 	     timestr
@@ -399,16 +425,17 @@ cons formed from a language specified and a litteral."
 	     lang description lang title)
      (mapconcat
       (lambda (uri)
-	(format "<skos:hasTopConcept rdf:resource=\"%s%s\"/>"
-		conceptschemeuri
+	(format "<skos:hasTopConcept rdf:resource=\"%s%s%s%s%s\"/>"
+		conceptschemebaseuri org-skos-uri-separator
+		conceptschemeid org-skos-id-separator
 		uri))
       (org-element-map (plist-get info :parse-tree)
 	  'headline (lambda (h)
 		      ;; Only consider top-level concepts
 		      (if (= (org-element-property :level h) 1)
-			  (concat "#" (or (org-element-property :ID h)
-					  (url-encode-url
-					   (org-element-property :URI h)))))))
+			  (or (org-element-property :ID h)
+			      (url-encode-url
+			       (org-element-property :URI h))))))
       "\n")
      "\n</skos:ConceptScheme>")))
 
@@ -421,25 +448,29 @@ as a communication channel."
 	   (symbol-name org-html-coding-system))
    "<rdf:RDF
     xmlns:schema=\"http://schema.org/\"
-    xmlns:owl=\"http://www.w3.org/2002/07/owl#\"
     xmlns:org=\"http://www.w3.org/ns/org#\"
-    xmlns:xsd=\"http://www.w3.org/2001/XMLSchema#\"
-    xmlns:rdfs=\"http://www.w3.org/2000/01/rdf-schema#\"
-    xmlns:dct=\"http://purl.org/dc/terms/\"
     xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\"
-    xmlns:prov=\"http://www.w3.org/ns/prov#\"
-    xmlns:foaf=\"http://xmlns.com/foaf/0.1/\"
+    xmlns:rdfs=\"http://www.w3.org/2000/01/rdf-schema#\"
     xmlns:dc=\"http://purl.org/dc/elements/1.1/\"
-    xmlns:skos=\"http://www.w3.org/2004/02/skos/core#\"
-    xmlns:skosxl=\"http://www.w3.org/2008/05/skos-xl#\"
-    xmlns:euvoc=\"http://publications.europa.eu/ontology/euvoc#\">"
+    xmlns:dct=\"http://purl.org/dc/terms/\"
+    xmlns:foaf=\"http://xmlns.com/foaf/0.1/\"
+    xmlns:mcc=\"http://www.culture.fr/thesaurus/elements/1.0/\"
+    xmlns:skos=\"http://www.w3.org/2004/02/skos/core#\""
+   (if org-skos-ISO-25964
+     "
+    xmlns:xsd=\"http://www.w3.org/2001/XMLSchema#\"
+    xmlns:euvoc=\"http://publications.europa.eu/ontology/euvoc#\"
+    xmlns:prov=\"http://www.w3.org/ns/prov#\"
+    xmlns:skosxl=\"http://www.w3.org/2008/05/skos-xl#\">"
+     ">")
    "\n"
    "\n"
    ;; Add description of top-level concepts
    (org-skos-build-top-level-description contents info)
    "\n"
    contents
-   (org-skos-build-iso-thes-terms contents info)
+   (when org-skos-ISO-25964
+     (org-skos-build-iso-thes-terms contents info))
    "\n</rdf:RDF>"))
 
 (defun org-skos-section (section contents info)

@@ -1,3 +1,4 @@
-# Org exporters to handle SKOS .org files
+ox-skos.el : export an \`.org\` file as XML/RDF using the SKOS.
 
-- ox-skos.el : export an `.org` file as XML/RDF
+See the `examples/` directory for small examples.
+

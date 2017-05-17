@@ -1,0 +1,36 @@
+#+TITLE: Vocabulary
+#+EMAIL: bzg@bzg.fr
+#+AUTHOR: Bastien
+#+CONTRIBUTOR: Bastien Guerry
+#+TYPE: Thesaurus
+#+DESCRIPTION: Vocabulary
+#+PUBLISHER: Bastien Guerry
+#+HOMEPAGE: https://bzg.fr
+#+RIGHTS: CC-by-sa-3.0
+#+LANGUAGE: fr
+#+conceptschemebaseuri: https://bzg.fr/thesaurus/resource/ark:/111111
+#+conceptschemeid: T111
+
+* Concept_one
+  :PROPERTIES:
+  :skos:definition: :fr Une définition pour concept_one.
+  :skos:definition: :en A definition for concept_one.
+  :skos:preflabel: :fr ConceptOne
+  :skos:preflabel: :en ConceptOne
+  :uri:      concept one
+  :ID:       1
+  :END:
+
+Une définition pour concept_one.
+
+** Concept_two
+   :PROPERTIES:
+   :skos:definition: :fr Une définition pour concept_two.
+   :skos:definition: :en A definition for concept_two.
+   :skos:preflabel: :fr ConceptTwo
+   :skos:preflabel: :en ConceptTwo
+   :uri:      concept two
+   :ID:       1
+   :END:
+
+Une définition pour concept_two.
